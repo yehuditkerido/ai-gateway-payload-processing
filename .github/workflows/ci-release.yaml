@@ -39,15 +39,18 @@ jobs:
           fi
         shell: bash
 
+      # TODO(test): change registry to ghcr.io/opendatahub-io before merging
       - name: Build and push
         uses: ./.github/actions/docker-build-and-push
         with:
           image-name: ${{ steps.meta.outputs.project_name }}
           tag: ${{ steps.tag.outputs.tag }}
+          registry: ghcr.io/yehuditkerido
           github-token: ${{ secrets.GITHUB_TOKEN }}
           prerelease: ${{ steps.tag.outputs.prerelease }}
 
+      # TODO(test): change registry to ghcr.io/opendatahub-io before merging
       - name: Trivy security scan
         uses: ./.github/actions/trivy-scan
         with:
-          image: ghcr.io/opendatahub-io/${{ steps.meta.outputs.project_name }}:${{ steps.tag.outputs.tag }}
+          image: ghcr.io/yehuditkerido/${{ steps.meta.outputs.project_name }}:${{ steps.tag.outputs.tag }}
