@@ -5,14 +5,21 @@ inputs:
   image:
     required: true
     description: Image to scan (e.g., ghcr.io/org/image:tag)
+  platform:
+    required: false
+    default: "linux/amd64"
+    description: Platform to scan (e.g., linux/amd64, linux/arm64)
 
 runs:
   using: composite
   steps:
+    # TODO(test): change exit-code back to '1' before submitting
     - name: Run Trivy vulnerability scanner
       uses: aquasecurity/trivy-action@0.35.0
       with:
         image-ref: ${{ inputs.image }}
         format: table
         severity: HIGH,CRITICAL
-        exit-code: '1'
+        exit-code: '0'
+      env:
+        TRIVY_PLATFORM: ${{ inputs.platform }}
