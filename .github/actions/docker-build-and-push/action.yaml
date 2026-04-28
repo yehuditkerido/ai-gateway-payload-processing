@@ -11,6 +11,10 @@ inputs:
   registry:
     required: true
     description: Container registry (e.g., ghcr.io/opendatahub-io)
+  platform:
+    required: false
+    default: "linux/amd64"
+    description: Target platform (e.g., linux/amd64, linux/arm64)
   github-token:
     required: true
     description: GitHub token for registry authentication
@@ -50,9 +54,9 @@ runs:
         fi
         
         docker buildx build \
-          --platform linux/amd64 \
-          --cache-from type=gha,scope=${{ inputs.image-name }} \
-          --cache-to type=gha,mode=max,scope=${{ inputs.image-name }} \
+          --platform ${{ inputs.platform }} \
+          --cache-from type=gha,scope=${{ inputs.image-name }}-${{ inputs.platform }} \
+          --cache-to type=gha,mode=max,scope=${{ inputs.image-name }}-${{ inputs.platform }} \
           --build-arg COMMIT_SHA=${{ steps.meta.outputs.commit_sha }} \
           --build-arg BUILD_REF=${{ steps.meta.outputs.build_ref }} \
           $TAGS \

@@ -13,7 +13,14 @@ permissions:
 
 jobs:
   docker-build-and-push:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -39,16 +46,19 @@ jobs:
           fi
         shell: bash
 
+      # TODO(test): change registry to ghcr.io/opendatahub-io before submitting
       - name: Build and push
         uses: ./.github/actions/docker-build-and-push
         with:
           image-name: ${{ steps.meta.outputs.project_name }}
           tag: ${{ steps.tag.outputs.tag }}
-          registry: ghcr.io/opendatahub-io
+          registry: ghcr.io/yehuditkerido
+          platform: ${{ matrix.platform }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
           prerelease: ${{ steps.tag.outputs.prerelease }}
 
+      # TODO(test): change registry to ghcr.io/opendatahub-io before submitting
       - name: Trivy security scan
         uses: ./.github/actions/trivy-scan
         with:
-          image: ghcr.io/opendatahub-io/${{ steps.meta.outputs.project_name }}:${{ steps.tag.outputs.tag }}
+          image: ghcr.io/yehuditkerido/${{ steps.meta.outputs.project_name }}:${{ steps.tag.outputs.tag }}
