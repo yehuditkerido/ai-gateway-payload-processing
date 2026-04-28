@@ -13,7 +13,18 @@ permissions:
 
 jobs:
   docker-build-and-push:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    outputs:
+      project_name: ${{ steps.meta.outputs.project_name }}
+      tag: ${{ steps.tag.outputs.tag }}
+      prerelease: ${{ steps.tag.outputs.prerelease }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -24,9 +35,14 @@ jobs:
           repo="${GITHUB_REPOSITORY##*/}"
           echo "project_name=$repo" >> "$GITHUB_OUTPUT"
 
-      - name: Determine tag
+      - name: Determine tag and arch
         id: tag
         run: |
+          # Extract arch from platform (e.g., linux/amd64 -> amd64)
+          ARCH="${{ matrix.platform }}"
+          ARCH="${ARCH##*/}"
+          echo "arch=$ARCH" >> "$GITHUB_OUTPUT"
+          
           if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
             echo "tag=${GITHUB_REF##refs/tags/}" >> "$GITHUB_OUTPUT"
             echo "prerelease=${{ github.event.release.prerelease }}" >> "$GITHUB_OUTPUT"
@@ -39,16 +55,44 @@ jobs:
           fi
         shell: bash
 
+      # TODO(test): change registry to ghcr.io/opendatahub-io before submitting
       - name: Build and push
         uses: ./.github/actions/docker-build-and-push
         with:
           image-name: ${{ steps.meta.outputs.project_name }}
           tag: ${{ steps.tag.outputs.tag }}
-          registry: ghcr.io/opendatahub-io
+          registry: ghcr.io/yehuditkerido
+          platform: ${{ matrix.platform }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
           prerelease: ${{ steps.tag.outputs.prerelease }}
 
+      # TODO(test): change registry to ghcr.io/opendatahub-io before submitting
       - name: Trivy security scan
         uses: ./.github/actions/trivy-scan
         with:
-          image: ghcr.io/opendatahub-io/${{ steps.meta.outputs.project_name }}:${{ steps.tag.outputs.tag }}
+          image: ghcr.io/yehuditkerido/${{ steps.meta.outputs.project_name }}:${{ steps.tag.outputs.tag }}-${{ steps.tag.outputs.arch }}
+
+  # TODO(test): change registry to ghcr.io/opendatahub-io before submitting
+  create-manifest:
+    needs: docker-build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Login to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Create and push manifest
+        run: |
+          IMAGE="ghcr.io/yehuditkerido/${{ needs.docker-build-and-push.outputs.project_name }}"
+          TAG="${{ needs.docker-build-and-push.outputs.tag }}"
+          
+          # Create manifest for version tag
+          docker buildx imagetools create -t ${IMAGE}:${TAG} \
+            ${IMAGE}:${TAG}-amd64 \
+            ${IMAGE}:${TAG}-arm64
+          
+          # Create manifest for latest tag (if not prerelease)
+          if [[ "${{ needs.docker-build-and-push.outputs.prerelease }}" != "true" ]]; then
+            docker buildx imagetools create -t ${IMAGE}:latest \
+              ${IMAGE}:latest-amd64 \
+              ${IMAGE}:latest-arm64
+          fi
