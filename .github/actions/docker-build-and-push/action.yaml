@@ -11,6 +11,10 @@ inputs:
   registry:
     required: true
     description: Container registry (e.g., ghcr.io/opendatahub-io)
+  platform:
+    required: false
+    default: "linux/amd64"
+    description: Target platform (e.g., linux/amd64, linux/arm64)
   github-token:
     required: true
     description: GitHub token for registry authentication
@@ -40,19 +44,29 @@ runs:
         echo "commit_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
         echo "build_ref=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
 
+    - name: Extract arch suffix
+      id: arch
+      shell: bash
+      run: |
+        # Extract arch from platform (e.g., linux/amd64 -> amd64)
+        ARCH="${{ inputs.platform }}"
+        ARCH="${ARCH##*/}"
+        echo "suffix=$ARCH" >> "$GITHUB_OUTPUT"
+
     - name: Build and push
       shell: bash
       run: |
-        TAGS="-t ${{ inputs.registry }}/${{ inputs.image-name }}:${{ inputs.tag }}"
+        ARCH_SUFFIX="${{ steps.arch.outputs.suffix }}"
+        TAGS="-t ${{ inputs.registry }}/${{ inputs.image-name }}:${{ inputs.tag }}-${ARCH_SUFFIX}"
         
         if [[ "${{ inputs.prerelease }}" != "true" ]]; then
-          TAGS="$TAGS -t ${{ inputs.registry }}/${{ inputs.image-name }}:latest"
+          TAGS="$TAGS -t ${{ inputs.registry }}/${{ inputs.image-name }}:latest-${ARCH_SUFFIX}"
         fi
         
         docker buildx build \
-          --platform linux/amd64 \
-          --cache-from type=gha,scope=${{ inputs.image-name }} \
-          --cache-to type=gha,mode=max,scope=${{ inputs.image-name }} \
+          --platform ${{ inputs.platform }} \
+          --cache-from type=gha,scope=${{ inputs.image-name }}-${{ inputs.platform }} \
+          --cache-to type=gha,mode=max,scope=${{ inputs.image-name }}-${{ inputs.platform }} \
           --build-arg COMMIT_SHA=${{ steps.meta.outputs.commit_sha }} \
           --build-arg BUILD_REF=${{ steps.meta.outputs.build_ref }} \
           $TAGS \
@@ -62,7 +76,8 @@ runs:
     - name: Print image info
       shell: bash
       run: |
-        echo "Pushed: ${{ inputs.registry }}/${{ inputs.image-name }}:${{ inputs.tag }}"
+        ARCH_SUFFIX="${{ steps.arch.outputs.suffix }}"
+        echo "Pushed: ${{ inputs.registry }}/${{ inputs.image-name }}:${{ inputs.tag }}-${ARCH_SUFFIX}"
         if [[ "${{ inputs.prerelease }}" != "true" ]]; then
-          echo "Pushed: ${{ inputs.registry }}/${{ inputs.image-name }}:latest"
+          echo "Pushed: ${{ inputs.registry }}/${{ inputs.image-name }}:latest-${ARCH_SUFFIX}"
         fi
