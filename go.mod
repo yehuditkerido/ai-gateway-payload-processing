@@ -16,6 +16,8 @@ require (
 
 require (
 	github.com/Masterminds/semver/v3 v3.4.0 // indirect
+	github.com/aws/aws-sdk-go-v2 v1.41.7 // indirect
+	github.com/aws/smithy-go v1.25.1 // indirect
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
 	github.com/google/pprof v0.0.0-20260402051712-545e8a4df936 // indirect
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect

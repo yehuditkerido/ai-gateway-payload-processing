@@ -35,12 +35,14 @@ func TestProcessRequest_ModelResolved(t *testing.T) {
 		extName     = "claude-sonnet"
 		targetModel = "claude-sonnet-1234"
 		credName    = "anthropic-key"
+		endpoint    = "api.anthropic.com"
 	)
 	store.addOrUpdateExternalModel(
 		types.NamespacedName{Namespace: extNS, Name: extName},
 		&externalModelInfo{
 			provider:        provider.Anthropic,
 			targetModel:     targetModel,
+			endpoint:        endpoint,
 			secretName:      credName,
 			secretNamespace: extNS,
 		},
@@ -71,6 +73,10 @@ func TestProcessRequest_ModelResolved(t *testing.T) {
 	actualCredsNamespace, err := framework.ReadCycleStateKey[string](cs, state.CredsRefNamespace)
 	require.NoError(t, err)
 	require.Equal(t, extNS, actualCredsNamespace)
+
+	actualEndpoint, err := framework.ReadCycleStateKey[string](cs, state.EndpointKey)
+	require.NoError(t, err)
+	require.Equal(t, endpoint, actualEndpoint)
 }
 
 func TestProcessRequest_ModelNotFound(t *testing.T) {

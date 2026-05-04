@@ -22,10 +22,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-// externalModelInfo holds the provider and secret name/namespace for an external model.
+// externalModelInfo holds the provider, endpoint, and secret name/namespace for an external model.
 type externalModelInfo struct {
 	provider        string
 	targetModel     string // this is the name of the model that will be used in the request
+	endpoint        string // the provider's endpoint hostname, e.g. bedrock-runtime.us-east-1.amazonaws.com
 	secretName      string
 	secretNamespace string
 }

@@ -19,6 +19,7 @@ package apikey_injection
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -29,7 +30,14 @@ import (
 	"sigs.k8s.io/gateway-api-inference-extension/pkg/epp/framework/interface/plugin"
 
 	"github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins/apikey-injection/auth"
+	"github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins/common/provider"
 	"github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins/common/state"
+)
+
+const (
+	// Synthetic provider names for SimpleAuthGenerator unit tests.
+	testProviderWithPrefix    = "provider-with-prefix"
+	testProviderWithoutPrefix = "provider-without-prefix"
 )
 
 // newTestPlugin creates an apiKeyInjectionPlugin for unit tests, bypassing the
@@ -38,11 +46,31 @@ func newTestPlugin(store *secretStore) *ApiKeyInjectionPlugin {
 	return &ApiKeyInjectionPlugin{
 		typedName: plugin.TypedName{Type: APIKeyInjectionPluginType, Name: APIKeyInjectionPluginType},
 		authHeadersGenerators: map[string]auth.AuthHeadersGenerator{
-			"provider-with-prefix":    &auth.SimpleAuthGenerator{HeaderName: "Authorization", HeaderValuePrefix: "prefix "},
-			"provider-without-prefix": &auth.SimpleAuthGenerator{HeaderName: "x-api-key"},
+			testProviderWithPrefix:    &auth.SimpleAuthGenerator{HeaderName: "Authorization", HeaderValuePrefix: "prefix "},
+			testProviderWithoutPrefix: &auth.SimpleAuthGenerator{HeaderName: "x-api-key"},
+			provider.AWSBedrock:       &auth.SigV4AuthGenerator{},
+		},
+		dataEnrichers: map[string]credentialsEnricherFunc{
+			provider.AWSBedrock: enrichBedrockCredentials,
 		},
 		store: store,
 	}
+}
+
+// newBedrockRequest creates an InferenceRequest pre-populated with a model body
+// field, simulating a real client request routed to Bedrock.
+func newBedrockRequest() *framework.InferenceRequest {
+	req := framework.NewInferenceRequest()
+	req.Body["model"] = "anthropic.claude-v2"
+	req.Body["prompt"] = "hello"
+	return req
+}
+
+// newBedrockCycleState builds a CycleState with credential ref, aws-bedrock provider and the target endpoint
+func newBedrockCycleState(credsNamespace, credsName string) *framework.CycleState {
+	cs := newCycleState(credsNamespace, credsName, provider.AWSBedrock)
+	cs.Write(state.EndpointKey, "bedrock-runtime.us-east-1.amazonaws.com")
+	return cs
 }
 
 // newCycleState builds a CycleState with credential ref and optional provider.
@@ -69,7 +97,7 @@ func TestProcessRequest(t *testing.T) {
 			name:              "provider that has simple generator with prefix",
 			secrets:           []*corev1.Secret{testSecret("default", "openai-key", map[string]string{"api-key": "sk-test-key"})},
 			request:           framework.NewInferenceRequest(),
-			prepareCycleState: func() *framework.CycleState { return newCycleState("default", "openai-key", "provider-with-prefix") },
+			prepareCycleState: func() *framework.CycleState { return newCycleState("default", "openai-key", testProviderWithPrefix) },
 			wantHeaders: map[string]string{
 				"Authorization": "prefix sk-test-key",
 			},
@@ -79,7 +107,7 @@ func TestProcessRequest(t *testing.T) {
 			secrets: []*corev1.Secret{testSecret("default", "anthropic-key", map[string]string{"api-key": "ant-key-123"})},
 			request: framework.NewInferenceRequest(),
 			prepareCycleState: func() *framework.CycleState {
-				return newCycleState("default", "anthropic-key", "provider-without-prefix")
+				return newCycleState("default", "anthropic-key", testProviderWithoutPrefix)
 			},
 			wantHeaders: map[string]string{
 				"x-api-key": "ant-key-123",
@@ -105,7 +133,7 @@ func TestProcessRequest(t *testing.T) {
 			request: framework.NewInferenceRequest(),
 			prepareCycleState: func() *framework.CycleState {
 				cs := framework.NewCycleState()
-				cs.Write(state.ProviderKey, "provider-with-prefix") // external model has provider but no creds
+				cs.Write(state.ProviderKey, testProviderWithPrefix) // external model has provider but no creds
 				return cs
 			},
 			errorContains: "missing credentialRef",
@@ -115,7 +143,7 @@ func TestProcessRequest(t *testing.T) {
 			secrets: []*corev1.Secret{},
 			request: framework.NewInferenceRequest(),
 			prepareCycleState: func() *framework.CycleState {
-				return newCycleState("default", "unknown", "provider-with-prefix")
+				return newCycleState("default", "unknown", testProviderWithPrefix)
 			},
 			errorContains: "credentials not found",
 		},
@@ -124,7 +152,7 @@ func TestProcessRequest(t *testing.T) {
 			secrets: []*corev1.Secret{testSecret("default", "wrong-fields", map[string]string{"wrong-field": "value"})},
 			request: framework.NewInferenceRequest(),
 			prepareCycleState: func() *framework.CycleState {
-				return newCycleState("default", "wrong-fields", "provider-with-prefix")
+				return newCycleState("default", "wrong-fields", testProviderWithPrefix)
 			},
 			errorContains: "failed to generate auth headers",
 		},
@@ -147,6 +175,80 @@ func TestProcessRequest(t *testing.T) {
 			require.NoError(t, err)
 			if diff := cmp.Diff(test.wantHeaders, test.request.Headers, cmpopts.SortMaps(func(a, b string) bool { return a < b }), cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("headers mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestProcessRequest_AWSBedrock(t *testing.T) {
+	tests := []struct {
+		name              string
+		secrets           []*corev1.Secret
+		prepareCycleState func() *framework.CycleState
+		wantSecurityToken string // exact value; empty means the header must be absent
+		errorContains     string
+	}{
+		{
+			name: "produces SigV4 auth headers",
+			secrets: []*corev1.Secret{testSecret("default", "bedrock-creds", map[string]string{
+				"aws-access-key-id":     "AKIAIOSFODNN7EXAMPLE",
+				"aws-secret-access-key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+			})},
+			prepareCycleState: func() *framework.CycleState { return newBedrockCycleState("default", "bedrock-creds") },
+		},
+		{
+			name: "includes security token when session token is present",
+			secrets: []*corev1.Secret{testSecret("default", "bedrock-creds", map[string]string{
+				"aws-access-key-id":     "AKIAIOSFODNN7EXAMPLE",
+				"aws-secret-access-key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+				"aws-session-token":     "FwoGZXIvYXdzEBYaDH7example-session-token",
+			})},
+			prepareCycleState: func() *framework.CycleState { return newBedrockCycleState("default", "bedrock-creds") },
+			wantSecurityToken: "FwoGZXIvYXdzEBYaDH7example-session-token",
+		},
+		{
+			name: "missing endpoint in cycle state returns error",
+			secrets: []*corev1.Secret{testSecret("default", "bedrock-creds", map[string]string{
+				"aws-access-key-id":     "AKIAIOSFODNN7EXAMPLE",
+				"aws-secret-access-key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+			})},
+			prepareCycleState: func() *framework.CycleState { return newCycleState("default", "bedrock-creds", provider.AWSBedrock) },
+			errorContains:     "credentials enrichment failed",
+		},
+		{
+			name:              "missing aws credentials returns error",
+			secrets:           []*corev1.Secret{testSecret("default", "bedrock-creds", map[string]string{"wrong-field": "value"})},
+			prepareCycleState: func() *framework.CycleState { return newBedrockCycleState("default", "bedrock-creds") },
+			errorContains:     "failed to generate auth headers",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := newSecretStore()
+			for _, secret := range test.secrets {
+				secretKey := fmt.Sprintf("%s/%s", secret.GetNamespace(), secret.GetName())
+				require.NoError(t, store.addOrUpdate(secretKey, secret))
+			}
+
+			plugin := newTestPlugin(store)
+			request := newBedrockRequest()
+			err := plugin.ProcessRequest(context.Background(), test.prepareCycleState(), request)
+
+			if test.errorContains != "" {
+				require.ErrorContains(t, err, test.errorContains)
+				return
+			}
+			require.NoError(t, err)
+
+			// SigV4 Authorization is dynamic (timestamp, signature), so we verify the scheme prefix only.
+			require.True(t, strings.HasPrefix(request.Headers["Authorization"], "AWS4-HMAC-SHA256"),
+				"Authorization header should start with AWS4-HMAC-SHA256, got: %s", request.Headers["Authorization"])
+			require.NotEmpty(t, request.Headers["X-Amz-Date"])
+			require.NotEmpty(t, request.Headers["X-Amz-Content-Sha256"])
+
+			if diff := cmp.Diff(test.wantSecurityToken, request.Headers["X-Amz-Security-Token"]); diff != "" {
+				t.Errorf("X-Amz-Security-Token mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

@@ -66,17 +66,19 @@ func (r *externalModelReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	provider, _, _ := unstructured.NestedString(obj.Object, "spec", "provider")
 	targetModel, _, _ := unstructured.NestedString(obj.Object, "spec", "targetModel")
+	endpoint, _, _ := unstructured.NestedString(obj.Object, "spec", "endpoint")
 	credsName, _, _ := unstructured.NestedString(obj.Object, "spec", "credentialRef", "name")
 
 	// targetModel is the model that will be used in the request body when getting inference requests.
 	info := &externalModelInfo{
 		provider:        provider,
 		targetModel:     targetModel,
+		endpoint:        endpoint,
 		secretName:      credsName,
 		secretNamespace: req.Namespace, // secret namespace is always the namespace of the ExternalModel
 	}
 	r.store.addOrUpdateExternalModel(req.NamespacedName, info)
 
-	logger.Info("updated model store", "provider", provider, "targetModel", targetModel)
+	logger.Info("updated model store", "provider", provider, "targetModel", targetModel, "endpoint", endpoint)
 	return ctrl.Result{}, nil
 }

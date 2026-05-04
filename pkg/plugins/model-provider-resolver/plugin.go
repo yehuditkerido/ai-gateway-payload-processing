@@ -134,6 +134,7 @@ func (p *ModelProviderResolverPlugin) ProcessRequest(ctx context.Context, cycleS
 	// info of external model written to cycle state for next plugins
 	cycleState.Write(state.ProviderKey, externalModelInfo.provider)
 	cycleState.Write(state.ModelKey, externalModelInfo.targetModel)
+	cycleState.Write(state.EndpointKey, externalModelInfo.endpoint)
 	cycleState.Write(state.CredsRefName, externalModelInfo.secretName)
 	cycleState.Write(state.CredsRefNamespace, externalModelInfo.secretNamespace)
 
