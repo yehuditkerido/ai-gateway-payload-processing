@@ -76,7 +76,7 @@ func NewAPIKeyInjectionPlugin(reconcilerBuilder func() *builder.Builder, clientR
 			provider.AzureOpenAI: &auth.SimpleAuthGenerator{HeaderName: "api-key"},
 			// provider.Vertex uses the native GenerateContent API — not used in 3.4 ExternalModel flow.
 			// provider.Vertex:     &auth.SimpleAuthGenerator{HeaderName: "Authorization", HeaderValuePrefix: "Bearer "},
-			provider.VertexOpenAI:  &auth.SimpleAuthGenerator{HeaderName: "Authorization", HeaderValuePrefix: "Bearer "},
+			provider.VertexOpenAI:  &auth.GCPOAuth2Generator{HeaderName: "Authorization", HeaderValuePrefix: "Bearer "},
 			provider.BedrockOpenAI: &auth.SimpleAuthGenerator{HeaderName: "Authorization", HeaderValuePrefix: "Bearer "},
 		},
 		store: store,
