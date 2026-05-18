@@ -35,6 +35,12 @@ import (
 	"github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins/common/state"
 )
 
+// credentialsEnricherFunc augments the credentials map with per-request data
+// (e.g. request body, endpoint) before it is passed to the AuthHeadersGenerator.
+// Enrichers MUST return a new map and never mutate the original (which is shared
+// across requests via the secretStore).
+type credentialsEnricherFunc func(credentials map[string]string, cycleState *framework.CycleState, request *framework.InferenceRequest) (map[string]string, error)
+
 const (
 	// APIKeyInjectionPluginType is the registered name for this plugin in the BBR registry.
 	APIKeyInjectionPluginType = "apikey-injection"
@@ -78,6 +84,10 @@ func NewAPIKeyInjectionPlugin(reconcilerBuilder func() *builder.Builder, clientR
 			// provider.Vertex:     &auth.SimpleAuthGenerator{HeaderName: "Authorization", HeaderValuePrefix: "Bearer "},
 			provider.VertexOpenAI:  &auth.GCPOAuth2Generator{HeaderName: "Authorization", HeaderValuePrefix: "Bearer "},
 			provider.BedrockOpenAI: &auth.SimpleAuthGenerator{HeaderName: "Authorization", HeaderValuePrefix: "Bearer "},
+			provider.AWSBedrock:    &auth.SigV4AuthGenerator{},
+		},
+		dataEnrichers: map[string]credentialsEnricherFunc{
+			provider.AWSBedrock: enrichBedrockCredentials,
 		},
 		store: store,
 	}), nil
@@ -86,9 +96,12 @@ func NewAPIKeyInjectionPlugin(reconcilerBuilder func() *builder.Builder, clientR
 // ApiKeyInjectionPlugin injects an API key from a Kubernetes Secret into the request headers.
 // The Secret is identified by its namespaced name from CycleState. The provider (e.g., openai, anthropic)
 // determines which header name and value format are used.
+// Providers that require per-request data for authentication (e.g. SigV4) register a
+// credentialsEnricherFunc in dataEnrichers to augment the credentials map before signing.
 type ApiKeyInjectionPlugin struct {
 	typedName             plugin.TypedName
 	authHeadersGenerators map[string]auth.AuthHeadersGenerator
+	dataEnrichers         map[string]credentialsEnricherFunc
 	store                 *secretStore
 }
 
@@ -132,6 +145,14 @@ func (p *ApiKeyInjectionPlugin) ProcessRequest(ctx context.Context, cycleState *
 		return errcommon.Error{Code: errcommon.Internal, Msg: fmt.Sprintf("provider '%s' credentials not found", providerName)}
 	}
 
+	if enricher, ok := p.dataEnrichers[providerName]; ok {
+		var enrichErr error
+		credentials, enrichErr = enricher(credentials, cycleState, request)
+		if enrichErr != nil {
+			return errcommon.Error{Code: errcommon.Internal, Msg: fmt.Sprintf("credentials enrichment failed for provider '%s': %v", providerName, enrichErr)}
+		}
+	}
+
 	generator, ok := p.authHeadersGenerators[providerName]
 	if !ok {
 		logger.Error(nil, "unsupported provider for auth generation", "provider", providerName)
@@ -150,4 +171,33 @@ func (p *ApiKeyInjectionPlugin) ProcessRequest(ctx context.Context, cycleState *
 
 	logger.Info("auth headers injected", "provider", providerName)
 	return nil
+}
+
+// enrichBedrockCredentials copies the credentials map and adds per-request fields
+// needed by SigV4 signing: the serialized request body, target endpoint, and request path.
+func enrichBedrockCredentials(credentials map[string]string, cycleState *framework.CycleState, request *framework.InferenceRequest) (map[string]string, error) {
+	enriched := make(map[string]string, len(credentials)+3)
+	for k, v := range credentials {
+		enriched[k] = v
+	}
+
+	// json.Marshal produces deterministic output (sorted map keys), ensuring the
+	// signed body matches what the framework sends upstream.
+	bodyBytes, err := json.Marshal(request.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request body: %w", err)
+	}
+	enriched["_request_body"] = string(bodyBytes)
+
+	endpoint, err := framework.ReadCycleStateKey[string](cycleState, state.EndpointKey)
+	if err != nil || endpoint == "" {
+		return nil, fmt.Errorf("missing or empty endpoint in CycleState (key %q)", state.EndpointKey)
+	}
+	enriched["_endpoint"] = endpoint
+
+	if path := request.Headers[":path"]; path != "" {
+		enriched["_path"] = path
+	}
+
+	return enriched, nil
 }
