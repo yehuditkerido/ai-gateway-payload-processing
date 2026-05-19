@@ -30,14 +30,7 @@ import (
 	"sigs.k8s.io/gateway-api-inference-extension/pkg/epp/framework/interface/plugin"
 
 	"github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins/apikey-injection/auth"
-	"github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins/common/provider"
 	"github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins/common/state"
-)
-
-const (
-	// Synthetic provider names for SimpleAuthGenerator unit tests.
-	testProviderWithPrefix    = "provider-with-prefix"
-	testProviderWithoutPrefix = "provider-without-prefix"
 )
 
 // newTestPlugin creates an apiKeyInjectionPlugin for unit tests, bypassing the
@@ -46,17 +39,22 @@ func newTestPlugin(store *secretStore) *ApiKeyInjectionPlugin {
 	return &ApiKeyInjectionPlugin{
 		typedName: plugin.TypedName{Type: APIKeyInjectionPluginType, Name: APIKeyInjectionPluginType},
 		authHeadersGenerators: map[string]auth.AuthHeadersGenerator{
-			testProviderWithPrefix:    &auth.SimpleAuthGenerator{HeaderName: "Authorization", HeaderValuePrefix: "prefix "},
-			testProviderWithoutPrefix: &auth.SimpleAuthGenerator{HeaderName: "x-api-key"},
-			provider.AWSBedrock:       &auth.SigV4AuthGenerator{},
+<<<<<<< Updated upstream
+			state.AuthTypeSimple:   &auth.SimpleAuthGenerator{},
+			state.AuthTypeGCPOAuth: &auth.GCPOAuth2Generator{},
+			state.AuthTypeSigV4:    &auth.SigV4AuthGenerator{},
 		},
 		dataEnrichers: map[string]credentialsEnricherFunc{
-			provider.AWSBedrock: enrichBedrockCredentials,
+			state.AuthTypeSigV4: enrichBedrockCredentials,
+=======
+			state.AuthTypeSimple: &auth.SimpleAuthGenerator{},
+>>>>>>> Stashed changes
 		},
 		store: store,
 	}
 }
 
+<<<<<<< Updated upstream
 // newBedrockRequest creates an InferenceRequest pre-populated with a model body
 // field, simulating a real client request routed to Bedrock.
 func newBedrockRequest() *framework.InferenceRequest {
@@ -66,20 +64,27 @@ func newBedrockRequest() *framework.InferenceRequest {
 	return req
 }
 
-// newBedrockCycleState builds a CycleState with credential ref, aws-bedrock provider and the target endpoint
+// newBedrockCycleState builds a CycleState with credential ref, aws-sigv4 auth type and the target endpoint
 func newBedrockCycleState(credsNamespace, credsName string) *framework.CycleState {
-	cs := newCycleState(credsNamespace, credsName, provider.AWSBedrock)
+	cs := newCycleState(credsNamespace, credsName, "aws-bedrock", map[string]string{
+		state.ConfigKeyAuthType: state.AuthTypeSigV4,
+	})
 	cs.Write(state.EndpointKey, "bedrock-runtime.us-east-1.amazonaws.com")
 	return cs
 }
 
-// newCycleState builds a CycleState with credential ref and optional provider.
-func newCycleState(credsNamespace, credsName, providerName string) *framework.CycleState {
+=======
+>>>>>>> Stashed changes
+// newCycleState builds a CycleState with credential ref, provider, and optional config.
+func newCycleState(credsNamespace, credsName, providerName string, providerConfig map[string]string) *framework.CycleState {
 	cs := framework.NewCycleState()
 	cs.Write(state.CredsRefName, credsName)
 	cs.Write(state.CredsRefNamespace, credsNamespace)
 	if providerName != "" {
 		cs.Write(state.ProviderKey, providerName)
+	}
+	if providerConfig != nil {
+		cs.Write(state.ProviderConfigKey, providerConfig)
 	}
 	return cs
 }
@@ -94,31 +99,69 @@ func TestProcessRequest(t *testing.T) {
 		errorContains     string
 	}{
 		{
-			name:              "provider that has simple generator with prefix",
-			secrets:           []*corev1.Secret{testSecret("default", "openai-key", map[string]string{"api-key": "sk-test-key"})},
-			request:           framework.NewInferenceRequest(),
-			prepareCycleState: func() *framework.CycleState { return newCycleState("default", "openai-key", testProviderWithPrefix) },
+			name:    "simple-auth with defaults (OpenAI style)",
+			secrets: []*corev1.Secret{testSecret("default", "openai-key", map[string]string{"api-key": "sk-test-key"})},
+			request: framework.NewInferenceRequest(),
+			prepareCycleState: func() *framework.CycleState {
+				return newCycleState("default", "openai-key", "openai", map[string]string{
+					"auth-type": "simple-auth",
+				})
+			},
 			wantHeaders: map[string]string{
-				"Authorization": "prefix sk-test-key",
+				"Authorization": "Bearer sk-test-key",
 			},
 		},
 		{
-			name:    "provider that has simple generator without prefix",
+			name:    "simple-auth with custom header (Anthropic style)",
 			secrets: []*corev1.Secret{testSecret("default", "anthropic-key", map[string]string{"api-key": "ant-key-123"})},
 			request: framework.NewInferenceRequest(),
 			prepareCycleState: func() *framework.CycleState {
-				return newCycleState("default", "anthropic-key", testProviderWithoutPrefix)
+				return newCycleState("default", "anthropic-key", "anthropic", map[string]string{
+					"auth-type":           "simple-auth",
+					"header-name":         "x-api-key",
+					"header-value-prefix": "",
+				})
 			},
 			wantHeaders: map[string]string{
 				"x-api-key": "ant-key-123",
 			},
 		},
 		{
-			name:              "unknown provider — request fails",
-			secrets:           []*corev1.Secret{testSecret("default", "no-provider", map[string]string{"api-key": "sk-key"})},
-			request:           framework.NewInferenceRequest(),
-			prepareCycleState: func() *framework.CycleState { return newCycleState("default", "no-provider", "some-unknown-provider") },
-			errorContains:     "unsupported provider",
+			name:    "simple-auth with custom header (Azure style)",
+			secrets: []*corev1.Secret{testSecret("default", "azure-key", map[string]string{"api-key": "azure-key-456"})},
+			request: framework.NewInferenceRequest(),
+			prepareCycleState: func() *framework.CycleState {
+				return newCycleState("default", "azure-key", "azure-openai", map[string]string{
+					"auth-type":           "simple-auth",
+					"header-name":         "api-key",
+					"header-value-prefix": "",
+				})
+			},
+			wantHeaders: map[string]string{
+				"api-key": "azure-key-456",
+			},
+		},
+		{
+			name:    "defaults to simple-auth when no auth-type specified",
+			secrets: []*corev1.Secret{testSecret("default", "default-key", map[string]string{"api-key": "default-value"})},
+			request: framework.NewInferenceRequest(),
+			prepareCycleState: func() *framework.CycleState {
+				return newCycleState("default", "default-key", "openai", nil)
+			},
+			wantHeaders: map[string]string{
+				"Authorization": "Bearer default-value",
+			},
+		},
+		{
+			name:    "unknown auth-type — request fails",
+			secrets: []*corev1.Secret{testSecret("default", "no-provider", map[string]string{"api-key": "sk-key"})},
+			request: framework.NewInferenceRequest(),
+			prepareCycleState: func() *framework.CycleState {
+				return newCycleState("default", "no-provider", "openai", map[string]string{
+					"auth-type": "unknown-auth-type",
+				})
+			},
+			errorContains: "unsupported auth type",
 		},
 		{
 			name:              "internal model no provider - skip gracefully",
@@ -133,7 +176,7 @@ func TestProcessRequest(t *testing.T) {
 			request: framework.NewInferenceRequest(),
 			prepareCycleState: func() *framework.CycleState {
 				cs := framework.NewCycleState()
-				cs.Write(state.ProviderKey, testProviderWithPrefix) // external model has provider but no creds
+				cs.Write(state.ProviderKey, "openai")
 				return cs
 			},
 			errorContains: "missing credentialRef",
@@ -143,7 +186,7 @@ func TestProcessRequest(t *testing.T) {
 			secrets: []*corev1.Secret{},
 			request: framework.NewInferenceRequest(),
 			prepareCycleState: func() *framework.CycleState {
-				return newCycleState("default", "unknown", testProviderWithPrefix)
+				return newCycleState("default", "unknown", "openai", nil)
 			},
 			errorContains: "credentials not found",
 		},
@@ -152,7 +195,7 @@ func TestProcessRequest(t *testing.T) {
 			secrets: []*corev1.Secret{testSecret("default", "wrong-fields", map[string]string{"wrong-field": "value"})},
 			request: framework.NewInferenceRequest(),
 			prepareCycleState: func() *framework.CycleState {
-				return newCycleState("default", "wrong-fields", testProviderWithPrefix)
+				return newCycleState("default", "wrong-fields", "openai", nil)
 			},
 			errorContains: "failed to generate auth headers",
 		},
@@ -211,8 +254,12 @@ func TestProcessRequest_AWSBedrock(t *testing.T) {
 				"aws-access-key-id":     "AKIAIOSFODNN7EXAMPLE",
 				"aws-secret-access-key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
 			})},
-			prepareCycleState: func() *framework.CycleState { return newCycleState("default", "bedrock-creds", provider.AWSBedrock) },
-			errorContains:     "credentials enrichment failed",
+			prepareCycleState: func() *framework.CycleState {
+				return newCycleState("default", "bedrock-creds", "aws-bedrock", map[string]string{
+					state.ConfigKeyAuthType: state.AuthTypeSigV4,
+				})
+			},
+			errorContains: "credentials enrichment failed",
 		},
 		{
 			name:              "missing aws credentials returns error",
@@ -226,8 +273,7 @@ func TestProcessRequest_AWSBedrock(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			store := newSecretStore()
 			for _, secret := range test.secrets {
-				secretKey := fmt.Sprintf("%s/%s", secret.GetNamespace(), secret.GetName())
-				require.NoError(t, store.addOrUpdate(secretKey, secret))
+				require.NoError(t, store.addOrUpdate(secret.GetNamespace(), secret.GetName(), secret))
 			}
 
 			plugin := newTestPlugin(store)

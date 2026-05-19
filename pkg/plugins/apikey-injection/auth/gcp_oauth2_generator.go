@@ -57,8 +57,8 @@ type GCPOAuth2Generator struct {
 
 // GenerateAuthHeaders reads the GCP Service Account JSON from credentials,
 // generates (or retrieves cached) OAuth2 access token, and returns the
-// Authorization header.
-func (g *GCPOAuth2Generator) GenerateAuthHeaders(credentials map[string]string) (map[string]string, error) {
+// Authorization header. Configuration can be overridden via providerConfig.
+func (g *GCPOAuth2Generator) GenerateAuthHeaders(credentials map[string]string, providerConfig map[string]string) (map[string]string, error) {
 	serviceAccountJSON, ok := credentials[gcpServiceAccountField]
 	if !ok {
 		return nil, fmt.Errorf("credentials missing required field %s", gcpServiceAccountField)
@@ -69,8 +69,11 @@ func (g *GCPOAuth2Generator) GenerateAuthHeaders(credentials map[string]string) 
 		return nil, fmt.Errorf("failed to get OAuth2 token: %w", err)
 	}
 
+	headerName := getConfigOrDefault(providerConfig, ConfigKeyHeaderName, "Authorization")
+	headerValuePrefix := getConfigOrDefault(providerConfig, ConfigKeyHeaderValuePrefix, "Bearer ")
+
 	return map[string]string{
-		g.HeaderName: fmt.Sprintf("%s%s", g.HeaderValuePrefix, token.AccessToken),
+		headerName: fmt.Sprintf("%s%s", headerValuePrefix, token.AccessToken),
 	}, nil
 }
 

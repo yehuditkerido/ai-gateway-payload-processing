@@ -25,48 +25,78 @@ import (
 
 func TestSimpleAuthHeadersGenerator(t *testing.T) {
 	tests := []struct {
-		name         string
-		headerName   string
-		headerPrefix string
-		credentials  map[string]string
-		wantHeaders  map[string]string
-		wantErr      bool
+		name           string
+		providerConfig map[string]string
+		credentials    map[string]string
+		wantHeaders    map[string]string
+		wantErr        bool
 	}{
 		{
-			name:         "Bearer prefix (OpenAI style)",
-			headerName:   "Authorization",
-			headerPrefix: "Bearer ",
-			credentials:  map[string]string{"api-key": "sk-test-key"},
+			name: "defaults - Bearer prefix (OpenAI style)",
+			providerConfig: nil,
+			credentials:    map[string]string{"api-key": "sk-test-key"},
 			wantHeaders: map[string]string{
 				"Authorization": "Bearer sk-test-key",
 			},
 		},
 		{
-			name:        "raw key without prefix (Anthropic style)",
-			headerName:  "x-api-key",
+			name: "custom header name (Anthropic style)",
+			providerConfig: map[string]string{
+				"header-name":         "x-api-key",
+				"header-value-prefix": "",
+			},
 			credentials: map[string]string{"api-key": "ant-key-123"},
 			wantHeaders: map[string]string{
 				"x-api-key": "ant-key-123",
 			},
 		},
 		{
-			name:        "missing api-key field returns error",
-			headerName:  "Authorization",
-			credentials: map[string]string{"wrong-field": "some-value"},
-			wantErr:     true,
+			name: "custom header name (Azure style)",
+			providerConfig: map[string]string{
+				"header-name":         "api-key",
+				"header-value-prefix": "",
+			},
+			credentials: map[string]string{"api-key": "azure-key-456"},
+			wantHeaders: map[string]string{
+				"api-key": "azure-key-456",
+			},
 		},
 		{
-			name:        "empty credentials returns error",
-			headerName:  "Authorization",
-			credentials: map[string]string{},
+			name: "custom secret key",
+			providerConfig: map[string]string{
+				"secret-key": "custom-key",
+			},
+			credentials: map[string]string{"custom-key": "custom-value"},
+			wantHeaders: map[string]string{
+				"Authorization": "Bearer custom-value",
+			},
+		},
+		{
+			name:           "missing api-key field returns error",
+			providerConfig: nil,
+			credentials:    map[string]string{"wrong-field": "some-value"},
+			wantErr:        true,
+		},
+		{
+			name:           "empty credentials returns error",
+			providerConfig: nil,
+			credentials:    map[string]string{},
+			wantErr:        true,
+		},
+		{
+			name: "custom secret key missing returns error",
+			providerConfig: map[string]string{
+				"secret-key": "custom-key",
+			},
+			credentials: map[string]string{"api-key": "value"},
 			wantErr:     true,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			generator := &SimpleAuthGenerator{HeaderName: test.headerName, HeaderValuePrefix: test.headerPrefix}
-			authHeaders, err := generator.GenerateAuthHeaders(test.credentials)
+			generator := &SimpleAuthGenerator{}
+			authHeaders, err := generator.GenerateAuthHeaders(test.credentials, test.providerConfig)
 
 			if test.wantErr {
 				if err == nil {

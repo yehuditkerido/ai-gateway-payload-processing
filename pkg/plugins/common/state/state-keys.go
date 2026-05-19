@@ -22,5 +22,17 @@ const (
 	ModelKey          = "model"
 	CredsRefName      = "credential-ref-name"
 	CredsRefNamespace = "credential-ref-namespace"
+<<<<<<< Updated upstream
 	EndpointKey       = "endpoint"
+=======
+>>>>>>> Stashed changes
+	ProviderConfigKey = "provider-config"
+
+	// Auth type values for ProviderConfig["auth-type"]
+	AuthTypeSimple   = "simple-auth"
+	AuthTypeGCPOAuth = "gcp-oauth2"
+	AuthTypeSigV4    = "aws-sigv4"
+
+	// Config key for specifying auth type
+	ConfigKeyAuthType = "auth-type"
 )

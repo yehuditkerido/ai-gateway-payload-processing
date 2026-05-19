@@ -18,6 +18,8 @@ package auth
 
 // AuthHeadersGenerator generates auth headers from credential fields.
 // Each implementation defines which fields it requires from the credentials map.
+// The providerConfig parameter contains provider-specific settings from
+// the ExternalProvider CRD's spec.config field (e.g., header-name, oauth2-scope).
 type AuthHeadersGenerator interface {
-	GenerateAuthHeaders(credentialsData map[string]string) (map[string]string, error)
+	GenerateAuthHeaders(credentialsData map[string]string, providerConfig map[string]string) (map[string]string, error)
 }

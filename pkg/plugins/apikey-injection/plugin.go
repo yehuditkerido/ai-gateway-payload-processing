@@ -31,7 +31,6 @@ import (
 	"sigs.k8s.io/gateway-api-inference-extension/pkg/epp/framework/interface/plugin"
 
 	"github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins/apikey-injection/auth"
-	"github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins/common/provider"
 	"github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins/common/state"
 )
 
@@ -76,18 +75,18 @@ func NewAPIKeyInjectionPlugin(reconcilerBuilder func() *builder.Builder, clientR
 			Type: APIKeyInjectionPluginType,
 			Name: APIKeyInjectionPluginType,
 		},
+		// Auth generators keyed by auth-type. Each generator is stateless and reads
+		// its configuration from the providerConfig parameter at request time.
 		authHeadersGenerators: map[string]auth.AuthHeadersGenerator{
-			provider.OpenAI:      &auth.SimpleAuthGenerator{HeaderName: "Authorization", HeaderValuePrefix: "Bearer "},
-			provider.Anthropic:   &auth.SimpleAuthGenerator{HeaderName: "x-api-key"},
-			provider.AzureOpenAI: &auth.SimpleAuthGenerator{HeaderName: "api-key"},
-			// provider.Vertex uses the native GenerateContent API — not used in 3.4 ExternalModel flow.
-			// provider.Vertex:     &auth.SimpleAuthGenerator{HeaderName: "Authorization", HeaderValuePrefix: "Bearer "},
-			provider.VertexOpenAI:  &auth.GCPOAuth2Generator{HeaderName: "Authorization", HeaderValuePrefix: "Bearer "},
-			provider.BedrockOpenAI: &auth.SimpleAuthGenerator{HeaderName: "Authorization", HeaderValuePrefix: "Bearer "},
-			provider.AWSBedrock:    &auth.SigV4AuthGenerator{},
+			state.AuthTypeSimple:   &auth.SimpleAuthGenerator{},
+			state.AuthTypeGCPOAuth: &auth.GCPOAuth2Generator{},
+			state.AuthTypeSigV4:    &auth.SigV4AuthGenerator{},
+<<<<<<< Updated upstream
 		},
 		dataEnrichers: map[string]credentialsEnricherFunc{
-			provider.AWSBedrock: enrichBedrockCredentials,
+			state.AuthTypeSigV4: enrichBedrockCredentials,
+=======
+>>>>>>> Stashed changes
 		},
 		store: store,
 	}), nil
@@ -116,8 +115,9 @@ func (p *ApiKeyInjectionPlugin) WithName(name string) *ApiKeyInjectionPlugin {
 	return p
 }
 
-// ProcessRequest reads the credential Secret reference and provider from CycleState (written by model-provider-resolver),
-// looks up the API key in the store, and injects provider-specific auth headers into the request.
+// ProcessRequest reads the credential Secret reference and provider config from CycleState
+// (written by model-provider-resolver), looks up credentials in the store, determines the
+// auth type, and injects provider-specific auth headers into the request.
 func (p *ApiKeyInjectionPlugin) ProcessRequest(ctx context.Context, cycleState *framework.CycleState, request *framework.InferenceRequest) error {
 	logger := log.FromContext(ctx).V(logutil.DEFAULT)
 
@@ -145,23 +145,38 @@ func (p *ApiKeyInjectionPlugin) ProcessRequest(ctx context.Context, cycleState *
 		return errcommon.Error{Code: errcommon.Internal, Msg: fmt.Sprintf("provider '%s' credentials not found", providerName)}
 	}
 
-	if enricher, ok := p.dataEnrichers[providerName]; ok {
-		var enrichErr error
-		credentials, enrichErr = enricher(credentials, cycleState, request)
-		if enrichErr != nil {
-			return errcommon.Error{Code: errcommon.Internal, Msg: fmt.Sprintf("credentials enrichment failed for provider '%s': %v", providerName, enrichErr)}
+	// Read provider config from CycleState (may be nil if not set)
+	providerConfig, _ := framework.ReadCycleStateKey[map[string]string](cycleState, state.ProviderConfigKey)
+
+	// Determine auth type from config, default to simple-auth
+	authType := state.AuthTypeSimple
+	if providerConfig != nil {
+		if at, ok := providerConfig[state.ConfigKeyAuthType]; ok && at != "" {
+			authType = at
 		}
 	}
 
-	generator, ok := p.authHeadersGenerators[providerName]
-	if !ok {
-		logger.Error(nil, "unsupported provider for auth generation", "provider", providerName)
-		return errcommon.Error{Code: errcommon.Internal, Msg: fmt.Sprintf("unsupported provider - '%s'", providerName)}
+<<<<<<< Updated upstream
+	// Apply credentials enricher if one is registered for this auth type
+	if enricher, ok := p.dataEnrichers[authType]; ok {
+		var enrichErr error
+		credentials, enrichErr = enricher(credentials, cycleState, request)
+		if enrichErr != nil {
+			return errcommon.Error{Code: errcommon.Internal, Msg: fmt.Sprintf("credentials enrichment failed for auth type '%s': %v", authType, enrichErr)}
+		}
 	}
 
-	authHeaders, err := generator.GenerateAuthHeaders(credentials)
+=======
+>>>>>>> Stashed changes
+	generator, ok := p.authHeadersGenerators[authType]
+	if !ok {
+		logger.Error(nil, "unsupported auth type", "authType", authType, "provider", providerName)
+		return errcommon.Error{Code: errcommon.Internal, Msg: fmt.Sprintf("unsupported auth type '%s' for provider '%s'", authType, providerName)}
+	}
+
+	authHeaders, err := generator.GenerateAuthHeaders(credentials, providerConfig)
 	if err != nil {
-		logger.Error(err, "auth header generation failed", "provider", providerName)
+		logger.Error(err, "auth header generation failed", "authType", authType, "provider", providerName)
 		return errcommon.Error{Code: errcommon.Internal, Msg: fmt.Sprintf("failed to generate auth headers for provider '%s': %v", providerName, err)}
 	}
 
@@ -169,7 +184,7 @@ func (p *ApiKeyInjectionPlugin) ProcessRequest(ctx context.Context, cycleState *
 		request.SetHeader(headerKey, headerValue)
 	}
 
-	logger.Info("auth headers injected", "provider", providerName)
+	logger.Info("auth headers injected", "authType", authType, "provider", providerName)
 	return nil
 }
 

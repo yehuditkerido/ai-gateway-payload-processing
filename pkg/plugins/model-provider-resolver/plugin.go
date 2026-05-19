@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"strings"
 
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -32,6 +31,7 @@ import (
 	logutil "sigs.k8s.io/gateway-api-inference-extension/pkg/common/observability/logging"
 	"sigs.k8s.io/gateway-api-inference-extension/pkg/epp/framework/interface/plugin"
 
+	inferencev1alpha1 "github.com/opendatahub-io/ai-gateway-payload-processing/api/inference/v1alpha1"
 	"github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins/common/state"
 )
 
@@ -59,11 +59,8 @@ func NewModelProviderResolver(reconcilerBuilder func() *builder.Builder, clientR
 		store:  modelInfoStore,
 	}
 
-	// Watch ExternalModel CRDs directly (no MaaS dependency)
-	obj := &unstructured.Unstructured{}
-	obj.SetGroupVersionKind(externalModelGVK)
-
-	if err := reconcilerBuilder().For(obj).Complete(reconciler); err != nil {
+	// Watch ExternalModel CRDs (inference.opendatahub.io/v1alpha1)
+	if err := reconcilerBuilder().For(&inferencev1alpha1.ExternalModel{}).Complete(reconciler); err != nil {
 		return nil, fmt.Errorf("failed to register ExternalModel reconciler for plugin '%s' - %w", ModelProviderResolverPluginType, err)
 	}
 
@@ -137,8 +134,11 @@ func (p *ModelProviderResolverPlugin) ProcessRequest(ctx context.Context, cycleS
 	cycleState.Write(state.EndpointKey, externalModelInfo.endpoint)
 	cycleState.Write(state.CredsRefName, externalModelInfo.secretName)
 	cycleState.Write(state.CredsRefNamespace, externalModelInfo.secretNamespace)
+	if externalModelInfo.providerConfig != nil {
+		cycleState.Write(state.ProviderConfigKey, externalModelInfo.providerConfig)
+	}
 
-	logger.Info("external model resolved", "model", modelKey.String(), "provider", externalModelInfo.provider)
+	logger.Info("external model resolved", "model", modelKey.String(), "provider", externalModelInfo.provider, "hasConfig", externalModelInfo.providerConfig != nil)
 	return nil
 }
 

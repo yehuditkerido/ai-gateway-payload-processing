@@ -79,6 +79,82 @@ func TestProcessRequest_ModelResolved(t *testing.T) {
 	require.Equal(t, endpoint, actualEndpoint)
 }
 
+func TestProcessRequest_ModelResolvedWithConfig(t *testing.T) {
+	store := newModelInfoStore()
+	const (
+		extNS       = "llm"
+		extName     = "gpt-4o"
+		targetModel = "gpt-4o"
+		credName    = "openai-key"
+	)
+	providerConfig := map[string]string{
+		"auth-type":           "simple-auth",
+		"header-name":         "Authorization",
+		"header-value-prefix": "Bearer ",
+	}
+	store.addOrUpdateExternalModel(
+		types.NamespacedName{Namespace: extNS, Name: extName},
+		&externalModelInfo{
+			provider:        provider.OpenAI,
+			targetModel:     targetModel,
+			secretName:      credName,
+			secretNamespace: extNS,
+			providerConfig:  providerConfig,
+		},
+	)
+
+	plugin := &ModelProviderResolverPlugin{modelInfoStore: store}
+	cs := framework.NewCycleState()
+	req := framework.NewInferenceRequest()
+	req.Headers[":path"] = "/" + extNS + "/" + extName + "/v1/chat/completions"
+	req.Body["model"] = targetModel
+
+	err := plugin.ProcessRequest(context.Background(), cs, req)
+	require.NoError(t, err)
+
+	actualConfig, err := framework.ReadCycleStateKey[map[string]string](cs, state.ProviderConfigKey)
+	require.NoError(t, err)
+	require.Equal(t, providerConfig, actualConfig)
+}
+
+func TestProcessRequest_ModelResolvedWithConfig(t *testing.T) {
+	store := newModelInfoStore()
+	const (
+		extNS       = "llm"
+		extName     = "gpt-4o"
+		targetModel = "gpt-4o"
+		credName    = "openai-key"
+	)
+	providerConfig := map[string]string{
+		"auth-type":           "simple-auth",
+		"header-name":         "Authorization",
+		"header-value-prefix": "Bearer ",
+	}
+	store.addOrUpdateExternalModel(
+		types.NamespacedName{Namespace: extNS, Name: extName},
+		&externalModelInfo{
+			provider:        provider.OpenAI,
+			targetModel:     targetModel,
+			secretName:      credName,
+			secretNamespace: extNS,
+			providerConfig:  providerConfig,
+		},
+	)
+
+	plugin := &ModelProviderResolverPlugin{modelInfoStore: store}
+	cs := framework.NewCycleState()
+	req := framework.NewInferenceRequest()
+	req.Headers[":path"] = "/" + extNS + "/" + extName + "/v1/chat/completions"
+	req.Body["model"] = targetModel
+
+	err := plugin.ProcessRequest(context.Background(), cs, req)
+	require.NoError(t, err)
+
+	actualConfig, err := framework.ReadCycleStateKey[map[string]string](cs, state.ProviderConfigKey)
+	require.NoError(t, err)
+	require.Equal(t, providerConfig, actualConfig)
+}
+
 func TestProcessRequest_ModelNotFound(t *testing.T) {
 	store := newModelInfoStore()
 	p := &ModelProviderResolverPlugin{modelInfoStore: store}

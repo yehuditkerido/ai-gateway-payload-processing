@@ -29,6 +29,7 @@ type externalModelInfo struct {
 	endpoint        string // the provider's endpoint hostname, e.g. bedrock-runtime.us-east-1.amazonaws.com
 	secretName      string
 	secretNamespace string
+	providerConfig  map[string]string // config from ExternalProvider.spec.config
 }
 
 // modelInfoStore is a thread-safe in-memory store that maps model names to their provider info.
