@@ -118,7 +118,7 @@ Three problems drive this feature:
 
 | Dependency | Owner | Status |
 |------------|-------|--------|
-| MaaS AuthPolicy: `x-api-key` header support | MaaS team (Jamie Land) | Not started — required for production passthrough without workarounds |
+| MaaS AuthPolicy: `x-api-key` header support | MaaS team (MaaS team) | Not started — required for production passthrough without workarounds |
 | MaaS HTTPRoute: URLRewrite filter | MaaS team | Not started |
 | BBR Framework SSE fix | llm-d upstream (PR #138) | Open PR |
 | Kuadrant Wasm multi-format token extraction | Kuadrant team (#1864) | Open issue |
@@ -136,7 +136,7 @@ Will this feature need to onboard e2e tests for Build Validation pipelines? **YE
 | Team | Start Date | EPIC | Dependencies | T-Shirt Size | Approval |
 |------|-----------|------|--------------|-------------|----------|
 | Inference Gateway (Noy Itzikowitz) | June 2026 | TBD | RHAISTRAT-1720 (merged) | S | |
-| MaaS (Jamie Land) | TBD | TBD | AuthPolicy template changes | S | |
+| MaaS (MaaS team) | TBD | TBD | AuthPolicy template changes | S | |
 
 ---
 
