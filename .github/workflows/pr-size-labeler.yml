@@ -33,19 +33,42 @@ jobs:
               "1000": "XXL"
             }
 
-      - name: Hold large PRs
-        if: contains(steps.size.outputs.sizeLabel, 'XL')
+      - name: Handle large PR warning
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh pr edit ${{ github.event.pull_request.number }} \
-            --repo ${{ github.repository }} \
-            --add-label "do-not-merge/hold"
-          
-          gh pr comment ${{ github.event.pull_request.number }} \
-            --repo ${{ github.repository }} \
-            --body "⚠️ **Large PR detected**
+          SIZE_LABEL: ${{ steps.size.outputs.sizeLabel }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const marker = '<!-- pr-size-labeler-comment -->';
+            const isLarge = process.env.SIZE_LABEL.includes('XL');
 
-          Your PR is large. Please consider breaking it into multiple PRs.
+            // Always clean up: delete old comment and remove hold label
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+            const existing = comments.find(c => c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.deleteComment({ owner, repo, comment_id: existing.id });
+            }
 
-          The \`do-not-merge/hold\` label has been added and can be removed by the reviewers based on their judgement."
+            try {
+              await github.rest.issues.removeLabel({ owner, repo, issue_number, name: 'do-not-merge/hold' });
+            } catch (e) {
+              if (e.status !== 404) throw e;
+            }
+
+            // If large, add label and create fresh comment
+            if (isLarge) {
+              await github.rest.issues.addLabels({ owner, repo, issue_number, labels: ['do-not-merge/hold'] });
+              await github.rest.issues.createComment({
+                owner, repo, issue_number,
+                body: [
+                  marker,
+                  '⚠️ **Large PR detected**',
+                  '',
+                  'Your PR is large. Please consider breaking it into multiple PRs.',
+                  '',
+                  'The `do-not-merge/hold` label has been added and can be removed by the reviewers based on their judgement.'
+                ].join('\n')
+              });
+            }
