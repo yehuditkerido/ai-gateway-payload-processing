@@ -34,7 +34,7 @@ upstreamIpp:
           - pluginRef: api-translation
 
   provider:
-    name: none
+    name: istio
 
   inferenceGateway:
-    name: inference-gateway
+    name: maas-default-gateway
