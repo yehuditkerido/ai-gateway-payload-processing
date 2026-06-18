@@ -28,6 +28,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"github.com/llm-d/llm-d-inference-payload-processor/cmd/runner"
 
+	"github.com/opendatahub-io/ai-gateway-payload-processing/pkg/controllers"
 	"github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins"
 )
 
@@ -37,7 +38,13 @@ func main() {
 
 	if err := runner.NewRunner().
 		WithExecutableName("ai-gateway-payload-processing").
-		// WithCustomCollectors(...). // THIS should be used for custom metrics exposed by our plugins
+		WithCustomControllers(
+			controllers.ProviderController(),
+			controllers.ModelController(
+				os.Getenv("GATEWAY_NAME"),
+				os.Getenv("GATEWAY_NAMESPACE"),
+			),
+		).
 		Run(ctrl.SetupSignalHandler()); err != nil {
 		os.Exit(1)
 	}

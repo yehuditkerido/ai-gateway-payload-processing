@@ -70,7 +70,7 @@ spec:
     type: simple
     secretRef:
       name: %s
-`, p.Name, nsName, p.Provider, simulatorEP, p.Name))
+`, p.Name, nsName, p.Provider, simulatorFQDN, p.Name))
 
 	// ExternalModel CR
 	kubectlApplyLiteral(fmt.Sprintf(`
@@ -86,60 +86,11 @@ spec:
       targetModel: %s
       apiFormat: %s
 `, p.Name, nsName, p.Name, p.Name, p.Provider))
-
-	// ExternalName Service pointing to simulator
-	kubectlApplyLiteral(fmt.Sprintf(`
-apiVersion: v1
-kind: Service
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  type: ExternalName
-  externalName: e2e-simulator.external
-  ports:
-  - port: 443
-    protocol: TCP
-`, p.Name, nsName))
-
-	// HTTPRoute with path-based + header-based routing
-	kubectlApplyLiteral(fmt.Sprintf(`
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: %s
-  namespace: %s
-spec:
-  parentRefs:
-  - group: gateway.networking.k8s.io
-    kind: Gateway
-    name: %s
-    namespace: %s
-  rules:
-  - matches:
-    - path:
-        type: PathPrefix
-        value: /%s/%s/
-    backendRefs:
-    - name: %s
-      port: 443
-  - matches:
-    - headers:
-      - name: X-Gateway-Model-Name
-        type: Exact
-        value: %s
-      path:
-        type: PathPrefix
-        value: /
-    backendRefs:
-    - name: %s
-      port: 443
-`, p.Name, nsName, gatewayName, gatewayNs, nsName, p.Name, p.Name, p.Name, p.Name))
 }
 
 func deleteProviderResources(p Provider) {
-	kubectlDeleteResource("httproute", p.Name, nsName)
-	kubectlDeleteResource("service", p.Name, nsName)
+	// Controller-created resources (Service, ServiceEntry, DestinationRule, HTTPRoute)
+	// are cleaned up via owner references when the CRs are deleted.
 	kubectlDeleteResource("externalmodels.inference.opendatahub.io", p.Name, nsName)
 	kubectlDeleteResource("externalproviders.inference.opendatahub.io", p.Name, nsName)
 	kubectlDeleteResource("secret", p.Name, nsName)

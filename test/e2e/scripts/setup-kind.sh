@@ -141,10 +141,13 @@ deploy_bbr() {
         --set upstreamIpp.provider.name=istio \
         --set upstreamIpp.provider.istio.envoyFilter.operation=INSERT_FIRST
 
-    # Disable sidecar injection on BBR pod (ext_proc uses self-signed TLS,
-    # sidecar intercepts and breaks the connection)
+    # Disable sidecar injection on BBR pod
     kubectl patch deployment payload-processing -n "$GATEWAY_NAMESPACE" --type=merge \
         -p='{"spec":{"template":{"metadata":{"annotations":{"sidecar.istio.io/inject":"false"}}}}}'
+
+    # Set gateway config env vars for controller
+    kubectl set env deployment/payload-processing -n "$GATEWAY_NAMESPACE" \
+        GATEWAY_NAME="$GATEWAY_NAME" GATEWAY_NAMESPACE="$GATEWAY_NAMESPACE"
 
     kubectl rollout status deployment/payload-processing \
         -n "$GATEWAY_NAMESPACE" --timeout=120s

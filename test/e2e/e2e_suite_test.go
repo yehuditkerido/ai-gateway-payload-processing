@@ -32,8 +32,9 @@ var (
 	gatewayNs      string
 	gatewayName    string
 	gatewaySvcName string
-	simulatorEP    string
-	curlTimeout    = 30 * time.Second
+	simulatorEP   string
+	simulatorFQDN string
+	curlTimeout   = 30 * time.Second
 )
 
 func TestE2E(t *testing.T) {
@@ -47,6 +48,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	gatewayName = envOr("E2E_GATEWAY_NAME", defaultGatewayName)
 	gatewaySvcName = envOr("E2E_GATEWAY_SVC_NAME", gatewayName+"-istio")
 	simulatorEP = envOr("E2E_SIMULATOR_ENDPOINT", defaultSimulatorEndpoint)
+	simulatorFQDN = strings.ReplaceAll(simulatorEP, ".", "-") + ".sslip.io"
 
 	config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		clientcmd.NewDefaultClientConfigLoadingRules(), nil,
@@ -66,38 +68,6 @@ var _ = ginkgo.AfterSuite(func() {
 func setupInfra() {
 	ginkgo.By("Creating test namespace")
 	createNamespace(nsName)
-
-	ginkgo.By("Creating simulator ServiceEntry and DestinationRule")
-	kubectlApplyLiteral(fmt.Sprintf(`
-apiVersion: networking.istio.io/v1
-kind: ServiceEntry
-metadata:
-  name: e2e-simulator
-  namespace: %s
-spec:
-  hosts:
-  - e2e-simulator.external
-  location: MESH_EXTERNAL
-  ports:
-  - number: 443
-    name: https
-    protocol: HTTPS
-  resolution: STATIC
-  endpoints:
-  - address: %s
----
-apiVersion: networking.istio.io/v1
-kind: DestinationRule
-metadata:
-  name: e2e-simulator
-  namespace: %s
-spec:
-  host: e2e-simulator.external
-  trafficPolicy:
-    tls:
-      mode: SIMPLE
-      insecureSkipVerify: true
-`, nsName, simulatorEP, nsName))
 
 	ginkgo.By("Creating curl client pod")
 	kubectlApplyLiteral(fmt.Sprintf(`
@@ -119,16 +89,14 @@ spec:
 		createProviderResources(p)
 	}
 
-	ginkgo.By("Waiting for plugin reconcilers to sync")
-	time.Sleep(10 * time.Second)
+	ginkgo.By("Waiting for controllers to create networking resources and routes to propagate")
+	time.Sleep(20 * time.Second)
 }
 
 func cleanupInfra() {
 	for _, p := range providers {
 		deleteProviderResources(p)
 	}
-	kubectlDeleteResource("destinationrule", "e2e-simulator", nsName)
-	kubectlDeleteResource("serviceentry", "e2e-simulator", nsName)
 	kubectlDeleteResource("pod", "curl", nsName)
 	_ = kubeClient.CoreV1().Namespaces().Delete(context.TODO(), nsName, metav1.DeleteOptions{})
 }
