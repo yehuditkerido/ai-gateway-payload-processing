@@ -14,7 +14,7 @@ upstreamIpp:
       v: 3
     customConfig:
       plugins:
-      - type: gateway-header-guard
+      - type: maas-headers-guard
       - type: body-field-to-header
         name: model-extractor
         parameters:
@@ -27,7 +27,7 @@ upstreamIpp:
       - name: default
         plugins:
           request:
-          - pluginRef: gateway-header-guard
+          - pluginRef: maas-headers-guard
           - pluginRef: model-extractor
           - pluginRef: model-provider-resolver
           - pluginRef: api-translation

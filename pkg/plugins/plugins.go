@@ -19,7 +19,7 @@ package plugins
 import (
 	api_translation "github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins/api-translation"
 	apikey_injection "github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins/apikey-injection"
-	header_guard "github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins/gateway-header-guard"
+	header_guard "github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins/maas-headers-guard"
 	provider_resolver "github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins/model-provider-resolver"
 	"github.com/opendatahub-io/ai-gateway-payload-processing/pkg/plugins/nemo"
 	"github.com/llm-d/llm-d-inference-payload-processor/pkg/framework/interface/plugin"

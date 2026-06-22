@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package gateway_header_guard
+package maas_headers_guard
 
 import (
 	"context"
@@ -29,9 +29,13 @@ import (
 )
 
 const (
-	PluginType = "gateway-header-guard"
+	PluginType = "maas-headers-guard"
 
 	headerPrefix = "x-maas-"
+
+	// MaaSHeadersKey is the CycleState key where captured x-maas-* headers are stored
+	// as a map[string]string. Downstream plugins read from this instead of request headers.
+	MaaSHeadersKey = "maas-headers"
 )
 
 var _ requesthandling.RequestProcessor = &Plugin{}
@@ -41,9 +45,14 @@ type Plugin struct {
 }
 
 func Factory(name string, _ json.RawMessage, _ plugin.Handle) (plugin.Plugin, error) {
-	return &Plugin{
-		typedName: plugin.TypedName{Type: PluginType, Name: name},
-	}, nil
+	return (&Plugin{
+		typedName: plugin.TypedName{Type: PluginType, Name: PluginType},
+	}).WithName(name), nil
+}
+
+func (p *Plugin) WithName(name string) *Plugin {
+	p.typedName.Name = name
+	return p
 }
 
 func (p *Plugin) TypedName() plugin.TypedName { return p.typedName }
@@ -51,13 +60,18 @@ func (p *Plugin) TypedName() plugin.TypedName { return p.typedName }
 func (p *Plugin) ProcessRequest(ctx context.Context, cycleState *plugin.CycleState, request *requesthandling.InferenceRequest) error {
 	logger := log.FromContext(ctx).V(logutil.VERBOSE)
 
+	captured := make(map[string]string)
 	for key, value := range request.Headers {
 		if !strings.HasPrefix(strings.ToLower(key), headerPrefix) {
 			continue
 		}
-		cycleState.Write(key, value)
+		captured[key] = value
 		request.RemoveHeader(key)
 		logger.Info("internal header captured and stripped", "header", key)
+	}
+
+	if len(captured) > 0 {
+		cycleState.Write(MaaSHeadersKey, captured)
 	}
 
 	return nil
